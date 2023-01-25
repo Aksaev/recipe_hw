@@ -3,34 +3,67 @@ package me.aksaev.recipe_hw.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import me.aksaev.recipe_hw.model.Ingredient;
 import me.aksaev.recipe_hw.model.Recipe;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.*;
 
 @Service
 public class RecipeServiceImpl implements RecipeService {
-    final private FilesService filesService;
-    private Map<Long, Recipe> recipeMap = new HashMap<>();
+    private final Map<Long, Recipe> recipeMap = new HashMap<>();
     private Long counter = 0L;
+    private final Path path;
+    private final ObjectMapper objectMapper;
 
-    public RecipeServiceImpl(FilesService filesService) {
-        this.filesService = filesService;
+
+    public RecipeServiceImpl(@Value("${application.file.recipes}") String path) {
+        try {
+            this.path = Paths.get(path);
+            this.objectMapper = new ObjectMapper();
+        } catch (InvalidPathException e) {
+            e.printStackTrace();
+            throw e;
+        }
+
     }
 
     @PostConstruct
-    private void init() {
-        readFromFile();
+    public void init() {
+        readDataFromFile();
+    }
+
+    private void readDataFromFile() {
+        try {
+            byte[] file = Files.readAllBytes(path);
+            Map<Long, Recipe> mapFromFile = objectMapper.readValue(file, new TypeReference<>() {
+            });
+            recipeMap.putAll(mapFromFile);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void writeDataToFile() {
+        try {
+            byte[] bytes = objectMapper.writeValueAsBytes(recipeMap);
+            Files.write(path, bytes);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
     public Recipe add(Recipe recipe) {
         recipeMap.put(this.counter++, recipe);
-        saveToFile();
+        writeDataToFile();
         return recipe;
     }
 
@@ -43,7 +76,7 @@ public class RecipeServiceImpl implements RecipeService {
     public Recipe update(long id, Recipe recipe) {
         if (recipeMap.containsKey(id)) {
             recipeMap.put(id, recipe);
-            saveToFile();
+            writeDataToFile();
             return recipe;
         }
         return null;
@@ -51,7 +84,9 @@ public class RecipeServiceImpl implements RecipeService {
 
     @Override
     public Recipe remove(long id) {
-        return recipeMap.remove(id);
+        Recipe recipe = recipeMap.remove(id);
+        writeDataToFile();
+        return recipe;
     }
 
     @Override
@@ -59,23 +94,6 @@ public class RecipeServiceImpl implements RecipeService {
         return new ArrayList<>(this.recipeMap.values());
     }
 
-    private void saveToFile() {
-        try {
-            String json = new ObjectMapper().writeValueAsString(recipeMap);
-            filesService.saveToFile(json);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
-        }
-    }
 
-    private void readFromFile() {
-        try {
-            String json = filesService.readFromFile();
-            recipeMap = new ObjectMapper().readValue(json, new TypeReference<Map<Long, Recipe>>() {
-            });
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
-        }
-    }
 
 }
